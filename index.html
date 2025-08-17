@@ -1,106 +1,61 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>CardTracker — Sports Cards & TCG Inventory</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Shazbot — Sports & TCG Tracker</title>
   <link rel="icon" href="/images/logo.png">
-  <style>
-    :root{
-      --bg:#0b1020; --card:#121933; --muted:#8aa0c6; --fg:#f1f5ff; --acc:#6EE7F9; --acc2:#A78BFA;
-      --grid-gap:12px; --radius:16px;
-    }
-    *{box-sizing:border-box}
-    body{margin:0;background:linear-gradient(180deg,#0b1020, #0c142a);color:var(--fg);font:14px/1.45 system-ui, -apple-system, Segoe UI, Roboto, Inter, Arial}
-    header{display:flex;align-items:center;gap:12px;padding:14px 18px;border-bottom:1px solid #1d284a;position:sticky;top:0;background:#0b1020aa;backdrop-filter: blur(6px)}
-    header img{height:28px}
-    header h1{font-size:16px;margin:0;letter-spacing:.4px;font-weight:700;opacity:.95}
-    .container{padding:18px;max-width:1200px;margin:0 auto}
-    .toolbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:14px}
-    .toolbar input[type="text"]{flex:1;min-width:240px;padding:10px 12px;border-radius:12px;border:1px solid #23325e;background:#0f1733;color:#f4f7ff;outline:none}
-    .btn{padding:9px 12px;background:linear-gradient(135deg,var(--acc),var(--acc2));border:0;color:#071022;border-radius:12px;font-weight:700;cursor:pointer}
-    .btn.secondary{background:#182552;color:#d9e3ff;border:1px solid #273668}
-    .btn.ghost{background:transparent;border:1px solid #2a3c72;color:#b6c6ef}
-    .row{display:grid;grid-template-columns:2fr 1fr;gap:18px}
-    .card{background:linear-gradient(180deg,#0e1530,#0c1533);border:1px solid #1b2a57;border-radius:var(--radius);padding:14px}
-    .card h2{margin:0 0 10px;font-size:15px;letter-spacing:.3px;color:#cfe1ff}
-    .muted{color:#8aa0c6}
-    .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px}
-    .result{display:flex;gap:10px;align-items:flex-start;background:#0c1634;border:1px solid #1b2a57;border-radius:12px;padding:10px}
-    .thumb{flex:0 0 48px;width:48px;height:48px;object-fit:cover;border-radius:8px;background:#1a2447}
-    .add{margin-left:auto}
-    table{width:100%;border-collapse:collapse}
-    th,td{border-bottom:1px solid #1c2955;padding:8px 6px;vertical-align:middle}
-    th{color:#b9cdfa;font-weight:600;text-align:left;font-size:12px;letter-spacing:.3px}
-    td{font-size:13px}
-    .cell-thumb img{width:40px;height:40px;object-fit:cover;border-radius:8px;background:#1a2447;display:block}
-    .select, .qty{background:#0f1735;border:1px solid #25376d;color:#d6e3ff;border-radius:8px;padding:6px}
-    .right{text-align:right}
-    .pill{display:inline-flex;align-items:center;gap:6px;border:1px solid #273667;background:#111a3a;border-radius:999px;padding:6px 10px;color:#b8c8f5}
-    .pill small{color:#8aa0c6}
-    .help{font-size:12px;color:#8aa0c6;margin-top:6px}
-    .footer{margin-top:12px;display:flex;gap:8px;align-items:center;justify-content:space-between;color:#8aa0c6}
-    .error{color:#ff90a0}
-    .success{color:#9cf3c1}
-    @media (max-width: 900px){
-      .row{grid-template-columns:1fr}
-    }
-  </style>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
-<header>
-  <img src="/images/logo.svg" alt="Shazbot" onerror="this.onerror=null;this.src='/images/logo.png';" />
-  <h1>CardTracker — Sports Cards & TCG Inventory</h1>
-</header>
-<div class="container">
-  <div class="toolbar">
-    <input id="q" type="text" placeholder="Search (e.g., 2025 Score Rookies, Shedeur Sanders #15)">
-    <button class="btn" id="searchBtn">Search</button>
-    <button class="btn secondary" id="refreshBtn" title="Refresh prices for all saved cards">Refresh Prices</button>
-    <button class="btn ghost" id="exportCsvBtn">Export CSV</button>
-    <button class="btn ghost" id="exportZipBtn">Export ZIP</button>
-    <label class="pill"><input id="storageToggle" type="checkbox" checked style="accent-color:#6EE7F9"> Storage: <small id="storageState">On</small></label>
-  </div>
+  <header class="shell">
+    <img src="/images/logo.png" class="logo" alt="Shazbot logo" width="28" height="28">
+    <h1>Shazbot</h1>
+    <div class="spacer"></div>
+    <a class="link" href="/.netlify/functions/scp?q=earthbound">Test API</a>
+    <a class="link" href="/.netlify/functions/img?u=https%3A%2F%2Fimages.pricecharting.com%2Flogos%2Fpricecharting-logo.png">Test Image Proxy</a>
+  </header>
 
-  <div class="row">
+  <main class="shell">
     <section class="card">
-      <h2>Search Results</h2>
-      <div class="help">Image previews are proxied through <code>/.netlify/functions/img</code> so tokens/refs never hit the client.</div>
-      <div id="results" class="grid"></div>
-      <div id="searchStatus" class="help muted"></div>
-    </section>
-
-    <section class="card">
-      <h2>Your Inventory <span class="muted" id="counts"></span></h2>
-      <div class="help">Per-item <strong>Grade</strong> overrides calculation key (e.g., graded-price, loose-price, bgs-10-price).</div>
-      <div style="overflow:auto">
-      <table id="invTable">
-        <thead>
-          <tr>
-            <th>Card</th>
-            <th>Details</th>
-            <th>Grade</th>
-            <th>Qty</th>
-            <th class="right">Unit</th>
-            <th class="right">Total</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody id="invBody"></tbody>
-      </table>
+      <div class="row">
+        <input id="q" type="search" placeholder="Search (e.g., 2025 Score Rookie, Michael Penix Jr.)" />
+        <button id="go">Search</button>
       </div>
-      <div class="footer">
-        <div class="help">Tip: Use Export to back up your collection. CSV format: <code>id,qty,grade</code>.</div>
-        <div>
-          <input id="csvFile" type="file" accept=".csv" style="display:none"/>
-          <button class="btn secondary" id="importCsvBtn">Import CSV</button>
-        </div>
-      </div>
-      <div id="invStatus" class="help muted"></div>
-    </section>
-  </div>
-</div>
 
-<script src="/assets/app.js"></script>
+      <div class="row opts">
+        <label><input id="onlySports" type="checkbox" checked> Only Sports Cards</label>
+        <label><input id="withImage" type="checkbox" checked> Thumbnails</label>
+      </div>
+
+      <p id="status"></p>
+
+      <div class="table-wrap">
+        <table id="results">
+          <thead>
+            <tr>
+              <th>Pic</th>
+              <th>Product</th>
+              <th>Console/Set</th>
+              <th>ID</th>
+              <th>Loose</th>
+              <th>New/Graded</th>
+              <th>Release</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <footer class="shell foot">
+    <small>Uses PriceCharting/SportsCardsPro API via serverless function. Your API token never hits the client.</small>
+  </footer>
+
+<script type="module" src="/app.js"></script>
 </body>
 </html>

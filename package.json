@@ -1,12 +1,12 @@
 {
-  "name": "shazbot-site",
-  "version": "1.0.0",
+  "name": "shazbot",
   "private": true,
-  "engines": {
-    "node": ">=18"
+  "version": "0.0.1",
+  "description": "Shazbot: Sports & TCG tracker (Netlify functions + vanilla JS)",
+  "scripts": {
+    "start": "netlify dev",
+    "build": "echo 'No build step'",
+    "serve": "npx http-server -p 3000 ."
   },
-  "dependencies": {
-    "cheerio": "^1.1.2",
-    "jszip": "^3.10.1"
-  }
+  "dependencies": {}
 }

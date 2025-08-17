@@ -1,64 +1,44 @@
-// netlify/functions/img.js
-// CommonJS Netlify Function: image proxy for SportsCardsPro product pages.
-// Accepts ?id= (preferred) or ?url= (full product page).
-// Extracts og:image via cheerio and streams the image back (base64).
-
-const cheerio = require("cheerio");
-
-async function fetchBuffer(url) {
-  const res = await fetch(url, { redirect: "follow" });
-  if (!res.ok) throw new Error(`fetch ${url} -> ${res.status}`);
-  const arr = await res.arrayBuffer();
-  const buf = Buffer.from(arr);
-  const ct = res.headers.get("content-type") || "image/jpeg";
-  return { buf, ct };
-}
+/* Tiny image proxy to avoid CORS and referrer issues */
+const ALLOWED_HOSTS = new Set([
+  "images.pricecharting.com",
+  "www.pricecharting.com",
+  "sportscardspro.com",
+  "www.sportscardspro.com",
+  "i.ebayimg.com",
+  "m.media-amazon.com",
+  "image.api.playstation.com",
+]);
 
 exports.handler = async (event) => {
   try {
-    const qs = event.queryStringParameters || {};
-    const id = qs.id;
-    const pageUrl = qs.url || (id ? `https://www.sportscardspro.com/product/${encodeURIComponent(id)}` : null);
-    if (!pageUrl) {
-      return { statusCode: 400, body: "Missing id or url" };
+    const u = (event.queryStringParameters && event.queryStringParameters.u) || "";
+    if (!u) return { statusCode: 400, body: "Missing u" };
+    const url = new URL(u);
+
+    // Basic allow-list
+    if (!ALLOWED_HOSTS.has(url.hostname)) {
+      return { statusCode: 403, body: "Host not allowed" };
     }
 
-    const page = await fetch(pageUrl, { redirect: "follow" });
-    if (!page.ok) {
-      return { statusCode: page.status, body: `Failed to load product page (${page.status})` };
-    }
-    const html = await page.text();
-    const $ = cheerio.load(html);
-
-    let img = $('meta[property="og:image"]').attr("content")
-          || $('meta[name="twitter:image"]').attr("content");
-
-    if (!img) {
-      const candidates = $("img").map((_, el) => $(el).attr("src")).get()
-        .filter(Boolean);
-      img = candidates.find(src => /(\.jpg|\.jpeg|\.png|\.webp)(\?|$)/i.test(src));
-      if (img) {
-        try { new URL(img); } catch {
-          img = new URL(img, pageUrl).toString();
-        }
-      }
+    const upstream = await fetch(url.toString(), {
+      headers: { "User-Agent": "Mozilla/5.0 (compatible; ShazbotBot/1.0)" },
+    });
+    if (!upstream.ok) {
+      return { statusCode: upstream.status, body: `Upstream error: ${upstream.statusText}` };
     }
 
-    if (!img) {
-      return { statusCode: 404, body: "Image not found" };
-    }
-
-    const { buf, ct } = await fetchBuffer(img);
+    const buf = Buffer.from(await upstream.arrayBuffer());
+    const type = upstream.headers.get("content-type") || "image/jpeg";
     return {
       statusCode: 200,
       headers: {
-        "Content-Type": ct,
-        "Cache-Control": "public, s-maxage=86400, max-age=3600"
+        "Content-Type": type,
+        "Cache-Control": "public, max-age=604800",
       },
       body: buf.toString("base64"),
-      isBase64Encoded: true
+      isBase64Encoded: true,
     };
-  } catch (err) {
-    return { statusCode: 500, body: `img proxy error: ${err.message}` };
+  } catch (e) {
+    return { statusCode: 500, body: String(e) };
   }
 };

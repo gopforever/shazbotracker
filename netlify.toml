@@ -1,14 +1,13 @@
 [build]
-  publish = "."
-  functions = "netlify/functions"
+publish = "."
+# If you have a frontend build step, replace with your build command/output
+# command = "npm run build" 
+# publish = "dist"
 
 [functions]
-  node_bundler = "esbuild"
-  external_node_modules = ["jszip"]
+directory = "netlify/functions"
+node_bundler = "esbuild"
+included_files = ["images/*"]
 
-# Optional: map /api/* to functions if your UI calls /api/scp
-[[redirects]]
-  from = "/api/*"
-  to = "/.netlify/functions/:splat"
-  status = 200
-  force = true
+[template.environment]
+SCP_TOKEN = "Your SportsCardsPro/PriceCharting API token"
