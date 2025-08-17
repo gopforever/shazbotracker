@@ -1,0 +1,8 @@
+[build]
+  # Adjust if you build with Vite (e.g., "npm run build" + publish="dist")
+  publish = "/"
+  command = ""
+
+[functions]
+  directory = "netlify/functions"
+  node_bundler = "esbuild"
