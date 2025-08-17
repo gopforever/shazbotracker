@@ -53,6 +53,7 @@
         <label class="btn pill" id="btn-import">Import CSV<input type="file" accept=".csv" /></label>
         <button id="btn-refresh" class="btn pill">Refresh Prices</button>
         <button id="btn-clear" class="btn pill ghost" title="Clears local data only">Clear Data</button>
+        <span class="tag" id="storageTag">Storage: …</span>
       </div>
     </div>
   </header>
@@ -68,7 +69,7 @@
         </select>
         <span class="tag" id="planTag" title="Requests proxied via Netlify Function">API: Proxied/Auto</span>
       </div>
-      <div class="help">Thumbnails use a tiny image proxy to avoid hotlink issues. Inventory is autosaved with backup.</div>
+      <div class="help">Thumbnails use a tiny image proxy to avoid hotlink issues. If storage is Off, your browser is blocking local saves.</div>
       <div class="results" id="results"></div>
       <div id="errorBox" class="notice" style="display:none"></div>
     </section>
@@ -126,7 +127,7 @@
             <li>Click <strong>Refresh Prices</strong> to update cached payloads. Uses proxy if available.</li>
             <li>Import/Export your inventory via CSV (or JSON).</li>
           </ol>
-          <p class="muted" style="margin-top:10px">Proxy function is <span class="kbd">netlify/functions/scp.js</span>; image proxy at <span class="kbd">netlify/functions/img.js</span>. Set <span class="kbd">SCP_TOKEN</span> in Netlify.</p>
+          <p class="muted" style="margin-top:10px">Functions: <span class="kbd">netlify/functions/scp.js</span> (API+image) • <span class="kbd">netlify/functions/img.js</span> (image proxy). Set <span class="kbd">SCP_TOKEN</span> in Netlify.</p>
         </div>
       </div>
     </section>
@@ -139,30 +140,21 @@
   const PROXY_FN = '/.netlify/functions/scp';
   const IMG_PROXY = '/.netlify/functions/img';
 
-  // --- Storage helpers (robust) ---
-  function storageOK(){
-    try{ const k='__ct_test__'; localStorage.setItem(k,'1'); localStorage.removeItem(k); return true; }catch(e){ return false; }
-  }
+  function storageOK(){ try{ const k='__ct_test__'; localStorage.setItem(k,'1'); localStorage.removeItem(k); return true; }catch(e){ return false; } }
   const STORAGE_ENABLED = storageOK();
-  function persist(){ if(!STORAGE_ENABLED) return; localStorage.setItem('ct_items', JSON.stringify(state.items)); localStorage.setItem('ct_priceCache', JSON.stringify(state.priceCache)); localStorage.setItem('ct_items_backup', JSON.stringify(state.items)); }
-  function persistCache(){ if(!STORAGE_ENABLED) return; localStorage.setItem('ct_priceCache', JSON.stringify(state.priceCache)); }
-  function loadPersisted(){
-    if(!STORAGE_ENABLED) return {items:[], cache:{}};
-    try{
-      const items = JSON.parse(localStorage.getItem('ct_items')||'[]');
-      const cache = JSON.parse(localStorage.getItem('ct_priceCache')||'{}');
-      return {items, cache};
-    }catch(e){
-      // fall back to backup
-      try{
-        const items = JSON.parse(localStorage.getItem('ct_items_backup')||'[]');
-        return {items, cache:{}};
-      }catch(_){ return {items:[], cache:{}}; }
-    }
-  }
-
   const state = { source: localStorage.getItem('ct_source') || 'scp', items: [], priceCache: {} };
-  (()=>{ const p = loadPersisted(); state.items = p.items; state.priceCache = p.cache; const src = localStorage.getItem('ct_source'); if(src) state.source = src; })();
+  (()=>{
+    if(STORAGE_ENABLED){
+      try{
+        state.items = JSON.parse(localStorage.getItem('ct_items')||'[]');
+        state.priceCache = JSON.parse(localStorage.getItem('ct_priceCache')||'{}');
+      }catch(e){
+        try{ state.items = JSON.parse(localStorage.getItem('ct_items_backup')||'[]'); }catch(_){ state.items = []; }
+        state.priceCache = {};
+      }
+    }
+    const src = localStorage.getItem('ct_source'); if(src) state.source = src;
+  })();
 
   const $ = s => document.querySelector(s); const $$ = s => Array.from(document.querySelectorAll(s));
   const fmt = n => (isFinite(n)? (n<0? `-$${(Math.abs(n)/100).toFixed(2)}` : `$${(n/100).toFixed(2)}`) : '$0.00');
@@ -170,8 +162,13 @@
   const cents = n => Math.round(n);
   const nowStr = () => new Date().toLocaleString();
   function showError(msg){ const box = $('#errorBox'); box.style.display='block'; box.textContent = msg; }
-
   function proxifyImage(url){ if(!url) return ''; if(url.startsWith('data:')) return url; const u = new URL(IMG_PROXY, location.origin); u.searchParams.set('url', url); return u.toString(); }
+
+  function setStorageTag(){ const el=$('#storageTag'); el.textContent = 'Storage: ' + (STORAGE_ENABLED ? 'On' : 'Off'); if(!STORAGE_ENABLED){ el.style.borderColor = '#ff6b6b'; el.style.color = '#ffbaba'; } }
+  setStorageTag();
+
+  function persist(){ if(!STORAGE_ENABLED) return; localStorage.setItem('ct_items', JSON.stringify(state.items)); localStorage.setItem('ct_priceCache', JSON.stringify(state.priceCache)); localStorage.setItem('ct_items_backup', JSON.stringify(state.items)); }
+  function persistCache(){ if(!STORAGE_ENABLED) return; localStorage.setItem('ct_priceCache', JSON.stringify(state.priceCache)); }
 
   async function fetchViaProxyOrDirect(params){
     try{
@@ -217,9 +214,9 @@
       const img = proxifyImage(raw);
       const el = document.createElement('div'); el.className='result';
       el.innerHTML = `${img? `<img class='thumb' src='${img}' alt='thumb'/>` : `<div class='thumb'></div>`}
-        <div><div><strong>${p['product-name']||'Unknown'}</strong></div><small>${p['console-name']||''} • ID ${p.id}</small></div>
+        <div><div><strong>${p['product-name']||'Unknown'}</div><small>${p['console-name']||''} • ID ${p.id}</small></div>
         <div style='display:flex; gap:8px'><button class='btn pill' data-add='${p.id}'>Add</button>
-        <a class='btn pill ghost' target='_blank' rel='noreferrer' href='https://www.sportscardspro.com/item/${p.id}'>Open</a></div>`;
+        <a class='btn pill ghost' target='_blank' rel='noreferrer' href='https://www.sportscardspro.com'>Open</a></div>`;
       box.appendChild(el);
     });
     $$('#results [data-add]').forEach(btn => btn.addEventListener('click', async (e)=>{
@@ -315,7 +312,6 @@
     state.items.unshift(row); persist(); renderTable(); updateTotals();
   }
 
-  // CSV + JSON + Import
   function exportCSV(){ const header = ['id','name','set','condition','priceKey','qty','unitCost','notes','image']; const rows = state.items.map(r => [r.id, r.name, r.set, r.condition, r.priceKey||'', r.qty, (r.costCents||0)/100, r.notes||'', r.image||'']); const csv = Papa.unparse([header, ...rows]); const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'}); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href=url; a.download='cardtracker_inventory.csv'; a.click(); URL.revokeObjectURL(url); }
   function exportJSON(){ const json = JSON.stringify({source: state.source, items: state.items}, null, 2); const blob = new Blob([json], {type:'application/json'}); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href=url; a.download='cardtracker_inventory.json'; a.click(); URL.revokeObjectURL(url); }
   function downloadTemplate(){ const header = ['id','name','set','condition','priceKey','qty','unitCost','notes','image']; const sample = [['72584','Michael Jordan #57','Basketball Cards 1986 Fleer','Ungraded','psa10-price','1','0','example note','']]; const csv = Papa.unparse([header, ...sample]); const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'}); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href=url; a.download='cardtracker_template.csv'; a.click(); URL.revokeObjectURL(url); }
@@ -327,13 +323,13 @@
   $('#btn-search').addEventListener('click', async ()=>{ const q = $('#q').value.trim(); if(!q) return; $('#results').innerHTML = '<div class=\"muted\" style=\"padding:10px\">Searching…</div>'; try{ const list = await apiSearchProducts(q, state.source); renderResults(list); }catch(err){ showError('Search failed: ' + err.message); $('#results').innerHTML = ''; } });
   $('#q').addEventListener('keydown', (e)=>{ if(e.key==='Enter') $('#btn-search').click(); });
   $('#btn-export').addEventListener('click', exportCSV); $('#btn-export-json').addEventListener('click', exportJSON); $('#btn-template').addEventListener('click', downloadTemplate); $('#btn-refresh').addEventListener('click', refreshAllPrices);
-  $('#btn-clear').addEventListener('click', ()=>{ if(confirm('Clear local inventory and cache?')){ if(STORAGE_ENABLED){ localStorage.removeItem('ct_items'); localStorage.removeItem('ct_priceCache'); } state.items = []; state.priceCache = {}; renderTable(); updateTotals(); } });
+  $('#btn-clear').addEventListener('click', ()=>{ if(confirm('Clear local inventory and cache?')){ try{ localStorage.removeItem('ct_items'); localStorage.removeItem('ct_priceCache'); localStorage.removeItem('ct_items_backup'); }catch(_){} state.items = []; state.priceCache = {}; renderTable(); updateTotals(); } });
   $('#btn-add-manual').addEventListener('click', ()=>{ const id = prompt('Enter product ID (numeric):'); if(!id) return; apiGetProductById(id, state.source).then(payload => { state.priceCache[id] = payload; persistCache(); addInventoryRowFromProduct(payload); persist(); }).catch(err=> alert('Lookup failed: '+err.message)); });
-  $('#source').value = state.source; $('#source').addEventListener('change', (e)=>{ state.source = e.target.value; if(STORAGE_ENABLED) localStorage.setItem('ct_source', state.source); $('#results').innerHTML = ''; });
+  $('#source').value = state.source; $('#source').addEventListener('change', (e)=>{ state.source = e.target.value; try{ localStorage.setItem('ct_source', state.source); }catch(_){} $('#results').innerHTML = ''; });
   $('#btn-import input[type=file]').addEventListener('change', (e)=>{ const f = e.target.files[0]; if(!f) return; importCSVFile(f); e.target.value = ''; });
   $('#btn-save-now').addEventListener('click', ()=>{ persist(); alert('Saved.'); });
 
-  // Autosave every 5s (throttled)
+  // Autosave every 5s
   setInterval(()=>{ persist(); }, 5000);
   window.addEventListener('beforeunload', persist);
 
