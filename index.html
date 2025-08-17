@@ -68,7 +68,7 @@
         </select>
         <span class="tag" id="planTag" title="Requests proxied via Netlify Function">API: Proxied/Auto</span>
       </div>
-      <div class="help">Now with search thumbnails. If proxy is unavailable, app falls back to direct API (dev mode) and shows a banner.</div>
+      <div class="help">Thumbnails use a tiny image proxy to avoid hotlink issues. Inventory is autosaved with backup.</div>
       <div class="results" id="results"></div>
       <div id="errorBox" class="notice" style="display:none"></div>
     </section>
@@ -112,6 +112,7 @@
           <div class="muted">Override the <strong>Price Key</strong> when needed (e.g., <span class="kbd">psa10-price</span>, <span class="kbd">loose-price</span>, <span class="kbd">graded-price</span>).</div>
           <div class="toolbar">
             <button class="btn pill" id="btn-add-manual">Add Manual Item</button>
+            <button class="btn pill ghost" id="btn-save-now" title="Force-save to storage">Save Now</button>
           </div>
         </div>
       </div>
@@ -125,7 +126,7 @@
             <li>Click <strong>Refresh Prices</strong> to update cached payloads. Uses proxy if available.</li>
             <li>Import/Export your inventory via CSV (or JSON).</li>
           </ol>
-          <p class="muted" style="margin-top:10px">Proxy function is <span class="kbd">netlify/functions/scp.js</span>. Set <span class="kbd">SCP_TOKEN</span> in Netlify.</p>
+          <p class="muted" style="margin-top:10px">Proxy function is <span class="kbd">netlify/functions/scp.js</span>; image proxy at <span class="kbd">netlify/functions/img.js</span>. Set <span class="kbd">SCP_TOKEN</span> in Netlify.</p>
         </div>
       </div>
     </section>
@@ -136,14 +137,41 @@
   const DIRECT_TOKEN = '60a3ec136eda14138bf7b4f236bcfbc584262a54';
   const API_BASE = { scp: 'https://www.sportscardspro.com', pc: 'https://www.pricecharting.com' };
   const PROXY_FN = '/.netlify/functions/scp';
+  const IMG_PROXY = '/.netlify/functions/img';
+
+  // --- Storage helpers (robust) ---
+  function storageOK(){
+    try{ const k='__ct_test__'; localStorage.setItem(k,'1'); localStorage.removeItem(k); return true; }catch(e){ return false; }
+  }
+  const STORAGE_ENABLED = storageOK();
+  function persist(){ if(!STORAGE_ENABLED) return; localStorage.setItem('ct_items', JSON.stringify(state.items)); localStorage.setItem('ct_priceCache', JSON.stringify(state.priceCache)); localStorage.setItem('ct_items_backup', JSON.stringify(state.items)); }
+  function persistCache(){ if(!STORAGE_ENABLED) return; localStorage.setItem('ct_priceCache', JSON.stringify(state.priceCache)); }
+  function loadPersisted(){
+    if(!STORAGE_ENABLED) return {items:[], cache:{}};
+    try{
+      const items = JSON.parse(localStorage.getItem('ct_items')||'[]');
+      const cache = JSON.parse(localStorage.getItem('ct_priceCache')||'{}');
+      return {items, cache};
+    }catch(e){
+      // fall back to backup
+      try{
+        const items = JSON.parse(localStorage.getItem('ct_items_backup')||'[]');
+        return {items, cache:{}};
+      }catch(_){ return {items:[], cache:{}}; }
+    }
+  }
 
   const state = { source: localStorage.getItem('ct_source') || 'scp', items: [], priceCache: {} };
-  (()=>{ try{ state.items = JSON.parse(localStorage.getItem('ct_items')||'[]'); state.priceCache = JSON.parse(localStorage.getItem('ct_priceCache')||'{}'); const src = localStorage.getItem('ct_source'); if(src) state.source = src; }catch(e){} })();
+  (()=>{ const p = loadPersisted(); state.items = p.items; state.priceCache = p.cache; const src = localStorage.getItem('ct_source'); if(src) state.source = src; })();
 
   const $ = s => document.querySelector(s); const $$ = s => Array.from(document.querySelectorAll(s));
   const fmt = n => (isFinite(n)? (n<0? `-$${(Math.abs(n)/100).toFixed(2)}` : `$${(n/100).toFixed(2)}`) : '$0.00');
-  const moneyToCents = s => Math.round(parseFloat(String(s||0)) * 100); const cents = n => Math.round(n); const nowStr = () => new Date().toLocaleString();
+  const moneyToCents = s => Math.round(parseFloat(String(s||0)) * 100);
+  const cents = n => Math.round(n);
+  const nowStr = () => new Date().toLocaleString();
   function showError(msg){ const box = $('#errorBox'); box.style.display='block'; box.textContent = msg; }
+
+  function proxifyImage(url){ if(!url) return ''; if(url.startsWith('data:')) return url; const u = new URL(IMG_PROXY, location.origin); u.searchParams.set('url', url); return u.toString(); }
 
   async function fetchViaProxyOrDirect(params){
     try{
@@ -183,9 +211,10 @@
   function renderResults(listWrap){
     const list = listWrap.products || listWrap;
     const box = $('#results'); box.innerHTML='';
-    if(!list.length){ box.innerHTML='<div class="muted" style="padding:10px">No results yet. Try a broader search.</div>'; return; }
+    if(!list.length){ box.innerHTML='<div class=\"muted\" style=\"padding:10px\">No results yet. Try a broader search.</div>'; return; }
     list.forEach(p => {
-      const img = p['image-url'] || '';
+      const raw = p['image-url'] || '';
+      const img = proxifyImage(raw);
       const el = document.createElement('div'); el.className='result';
       el.innerHTML = `${img? `<img class='thumb' src='${img}' alt='thumb'/>` : `<div class='thumb'></div>`}
         <div><div><strong>${p['product-name']||'Unknown'}</strong></div><small>${p['console-name']||''} • ID ${p.id}</small></div>
@@ -196,19 +225,97 @@
     $$('#results [data-add]').forEach(btn => btn.addEventListener('click', async (e)=>{
       const id = e.currentTarget.getAttribute('data-add');
       e.currentTarget.textContent='Adding…';
-      try { const payload = await apiGetProductById(id, state.source); state.priceCache[id] = payload; persistCache(); addInventoryRowFromProduct(payload); }
+      try { const payload = await apiGetProductById(id, state.source); state.priceCache[id] = payload; persistCache(); addInventoryRowFromProduct(payload); persist(); }
       catch(err){ alert('Add failed: '+err.message); }
       finally { e.currentTarget.textContent='Add'; }
     }));
   }
 
-  function renderTable(){ const tbody = $('#tbody'); tbody.innerHTML=''; state.items.forEach((row, idx) => { const payload = state.priceCache[row.id]||{}; const img = row.image || getImageUrl(payload) || ''; const keys = getAvailablePriceKeys(payload); const priceC = priceFromRow(row); const estValueC = cents(priceC * row.qty); const pnlC = cents(estValueC - (row.costCents||0) * row.qty); const tr = document.createElement('tr'); tr.innerHTML = `<td><button class='pill' data-del='${idx}' title='Remove'>✕</button></td><td>${img ? `<img class='thumb' src='${img}' alt='thumb'/>` : '<div class="thumb"></div>'}</td><td><div style='font-weight:600'>${row.name||''}</div><div class='muted'>ID ${row.id}</div></td><td>${row.set||''}</td><td><select data-cond='${idx}'>${CONDITION_OPTIONS.map(c => `<option ${c===row.condition?'selected':''}>${c}</option>`).join('')}</select></td><td>${keys.length ? `<select data-pkey='${idx}'><option value=''>(auto)</option>${keys.map(k => `<option value='${k}' ${row.priceKey===k?'selected':''}>${k}</option>`).join('')}</select>` : `<input class='row-input' type='text' placeholder='(auto)' value='${row.priceKey||''}' data-pkey-input='${idx}' />`}</td><td><input class='row-input' type='number' min='1' step='1' value='${row.qty}' data-qty='${idx}' /></td><td><input class='row-input' type='number' min='0' step='0.01' value='${(row.costCents||0)/100}' data-cost='${idx}' /></td><td class='money'>${fmt(priceC)}</td><td class='money'>${fmt(estValueC)}</td><td class='money ${pnlC>=0? 'delta-pos':'delta-neg'}'>${fmt(pnlC)}</td><td><input class='row-input' type='text' value='${row.notes||''}' data-notes='${idx}' /></td><td class='muted'>${row.updated||''}</td>`; tbody.appendChild(tr); }); $$('#tbody [data-del]').forEach(btn => btn.addEventListener('click', (e)=>{ const i = +e.currentTarget.getAttribute('data-del'); state.items.splice(i,1); persist(); renderTable(); updateTotals(); })); $$('#tbody [data-cond]').forEach(sel => sel.addEventListener('change', (e)=>{ const i = +e.currentTarget.getAttribute('data-cond'); state.items[i].condition = e.currentTarget.value; state.items[i].updated = nowStr(); persist(); renderTable(); updateTotals(); })); $$('#tbody [data-pkey]').forEach(sel => sel.addEventListener('change', (e)=>{ const i = +e.currentTarget.getAttribute('data-pkey'); state.items[i].priceKey = e.currentTarget.value || undefined; state.items[i].updated = nowStr(); persist(); renderTable(); updateTotals(); })); $$('#tbody [data-pkey-input]').forEach(inp => inp.addEventListener('input', (e)=>{ const i = +e.currentTarget.getAttribute('data-pkey-input'); const v = (e.currentTarget.value||'').trim(); state.items[i].priceKey = v || undefined; state.items[i].updated = nowStr(); persist(); renderTable(); updateTotals(); })); $$('#tbody [data-qty]').forEach(inp => inp.addEventListener('input', (e)=>{ const i = +e.currentTarget.getAttribute('data-qty'); state.items[i].qty = Math.max(1, parseInt(e.currentTarget.value||'1')); state.items[i].updated = nowStr(); persist(); renderTable(); updateTotals(); })); $$('#tbody [data-cost]').forEach(inp => inp.addEventListener('input', (e)=>{ const i = +e.currentTarget.getAttribute('data-cost'); state.items[i].costCents = moneyToCents(e.currentTarget.value||'0'); state.items[i].updated = nowStr(); persist(); renderTable(); updateTotals(); })); $$('#tbody [data-notes]').forEach(inp => inp.addEventListener('input', (e)=>{ const i = +e.currentTarget.getAttribute('data-notes'); state.items[i].notes = e.currentTarget.value; state.items[i].updated = nowStr(); persist(); })); }
+  function renderTable(){
+    const tbody = $('#tbody'); tbody.innerHTML='';
+    state.items.forEach((row, idx) => {
+      const payload = state.priceCache[row.id]||{};
+      const raw = row.image || getImageUrl(payload) || '';
+      const img = proxifyImage(raw);
+      const keys = getAvailablePriceKeys(payload);
+      const priceC = priceFromRow(row);
+      const estValueC = cents(priceC * row.qty);
+      const pnlC = cents(estValueC - (row.costCents||0) * row.qty);
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td><button class='pill' data-del='${idx}' title='Remove'>✕</button></td>
+        <td>${img ? `<img class='thumb' src='${img}' alt='thumb'/>` : '<div class=\"thumb\"></div>'}</td>
+        <td><div style='font-weight:600'>${row.name||''}</div><div class='muted'>ID ${row.id}</div></td>
+        <td>${row.set||''}</td>
+        <td><select data-cond='${idx}'>${CONDITION_OPTIONS.map(c => `<option ${c===row.condition?'selected':''}>${c}</option>`).join('')}</select></td>
+        <td>${keys.length ? `<select data-pkey='${idx}'><option value=''>(auto)</option>${keys.map(k => `<option value='${k}' ${row.priceKey===k?'selected':''}>${k}</option>`).join('')}</select>` : `<input class='row-input' type='text' placeholder='(auto)' value='${row.priceKey||''}' data-pkey-input='${idx}' />`}</td>
+        <td><input class='row-input' type='number' min='1' step='1' value='${row.qty}' data-qty='${idx}' /></td>
+        <td><input class='row-input' type='number' min='0' step='0.01' value='${(row.costCents||0)/100}' data-cost='${idx}' /></td>
+        <td class='money'>${fmt(priceC)}</td>
+        <td class='money'>${fmt(estValueC)}</td>
+        <td class='money ${pnlC>=0? 'delta-pos':'delta-neg'}'>${fmt(pnlC)}</td>
+        <td><input class='row-input' type='text' value='${row.notes||''}' data-notes='${idx}' /></td>
+        <td class='muted'>${row.updated||''}</td>`;
+      tbody.appendChild(tr);
+    });
 
-  function updateTotals(){ const totals = state.items.reduce((acc, row)=>{ const priceC = priceFromRow(row); acc.items += 1; acc.qty += row.qty; acc.valueC += cents(priceC * row.qty); acc.costC += cents((row.costCents||0) * row.qty); return acc; }, {items:0, qty:0, valueC:0, costC:0}); $('#totalItems').textContent = totals.items; $('#totalQty').textContent = totals.qty; $('#totalValue').textContent = fmt(totals.valueC); $('#totalCost').textContent = fmt(totals.costC); const pnl = totals.valueC - totals.costC; $('#totalPnL').textContent = fmt(pnl); $('#totalPnL').className = 'money ' + (pnl>=0? 'delta-pos':'delta-neg'); }
-  function addInventoryRowFromProduct(p){ const row = { id: p.id, name: p['product-name']||'Unknown', set: p['console-name']||'', condition: 'Ungraded', qty: 1, costCents: 0, notes: '', image: getImageUrl(p) || '', priceKey: '', updated: nowStr() }; state.items.unshift(row); persist(); renderTable(); updateTotals(); }
-  function persist(){ localStorage.setItem('ct_items', JSON.stringify(state.items)); }
-  function persistCache(){ localStorage.setItem('ct_priceCache', JSON.stringify(state.priceCache)); }
+    $$('#tbody [data-del]').forEach(btn => btn.addEventListener('click', (e)=>{
+      const i = +e.currentTarget.getAttribute('data-del');
+      state.items.splice(i,1); persist(); renderTable(); updateTotals();
+    }));
+    $$('#tbody [data-cond]').forEach(sel => sel.addEventListener('change', (e)=>{
+      const i = +e.currentTarget.getAttribute('data-cond');
+      state.items[i].condition = e.currentTarget.value; state.items[i].updated = nowStr();
+      persist(); renderTable(); updateTotals();
+    }));
+    $$('#tbody [data-pkey]').forEach(sel => sel.addEventListener('change', (e)=>{
+      const i = +e.currentTarget.getAttribute('data-pkey');
+      state.items[i].priceKey = e.currentTarget.value || undefined; state.items[i].updated = nowStr();
+      persist(); renderTable(); updateTotals();
+    }));
+    $$('#tbody [data-pkey-input]').forEach(inp => inp.addEventListener('input', (e)=>{
+      const i = +e.currentTarget.getAttribute('data-pkey-input');
+      const v = (e.currentTarget.value||'').trim();
+      state.items[i].priceKey = v || undefined; state.items[i].updated = nowStr();
+      persist(); renderTable(); updateTotals();
+    }));
+    $$('#tbody [data-qty]').forEach(inp => inp.addEventListener('input', (e)=>{
+      const i = +e.currentTarget.getAttribute('data-qty');
+      state.items[i].qty = Math.max(1, parseInt(e.currentTarget.value||'1')); state.items[i].updated = nowStr();
+      persist(); renderTable(); updateTotals();
+    }));
+    $$('#tbody [data-cost]').forEach(inp => inp.addEventListener('input', (e)=>{
+      const i = +e.currentTarget.getAttribute('data-cost');
+      state.items[i].costCents = moneyToCents(e.currentTarget.value||'0'); state.items[i].updated = nowStr();
+      persist(); renderTable(); updateTotals();
+    }));
+    $$('#tbody [data-notes]').forEach(inp => inp.addEventListener('input', (e)=>{
+      const i = +e.currentTarget.getAttribute('data-notes');
+      state.items[i].notes = e.currentTarget.value; state.items[i].updated = nowStr();
+      persist();
+    }));
+  }
 
+  function updateTotals(){
+    const totals = state.items.reduce((acc, row)=>{
+      const priceC = priceFromRow(row);
+      acc.items += 1; acc.qty += row.qty; acc.valueC += cents(priceC * row.qty); acc.costC += cents((row.costCents||0) * row.qty);
+      return acc;
+    }, {items:0, qty:0, valueC:0, costC:0});
+    $('#totalItems').textContent = totals.items;
+    $('#totalQty').textContent = totals.qty;
+    $('#totalValue').textContent = fmt(totals.valueC);
+    $('#totalCost').textContent = fmt(totals.costC);
+    const pnl = totals.valueC - totals.costC;
+    $('#totalPnL').textContent = fmt(pnl);
+    $('#totalPnL').className = 'money ' + (pnl>=0? 'delta-pos':'delta-neg');
+  }
+
+  function addInventoryRowFromProduct(p){
+    const row = { id: p.id, name: p['product-name']||'Unknown', set: p['console-name']||'', condition: 'Ungraded', qty: 1, costCents: 0, notes: '', image: getImageUrl(p) || '', priceKey: '', updated: nowStr() };
+    state.items.unshift(row); persist(); renderTable(); updateTotals();
+  }
+
+  // CSV + JSON + Import
   function exportCSV(){ const header = ['id','name','set','condition','priceKey','qty','unitCost','notes','image']; const rows = state.items.map(r => [r.id, r.name, r.set, r.condition, r.priceKey||'', r.qty, (r.costCents||0)/100, r.notes||'', r.image||'']); const csv = Papa.unparse([header, ...rows]); const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'}); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href=url; a.download='cardtracker_inventory.csv'; a.click(); URL.revokeObjectURL(url); }
   function exportJSON(){ const json = JSON.stringify({source: state.source, items: state.items}, null, 2); const blob = new Blob([json], {type:'application/json'}); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href=url; a.download='cardtracker_inventory.json'; a.click(); URL.revokeObjectURL(url); }
   function downloadTemplate(){ const header = ['id','name','set','condition','priceKey','qty','unitCost','notes','image']; const sample = [['72584','Michael Jordan #57','Basketball Cards 1986 Fleer','Ungraded','psa10-price','1','0','example note','']]; const csv = Papa.unparse([header, ...sample]); const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'}); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href=url; a.download='cardtracker_template.csv'; a.click(); URL.revokeObjectURL(url); }
@@ -216,13 +323,19 @@
 
   async function refreshAllPrices(){ const ids = [...new Set(state.items.map(r => r.id))]; const queue = ids.filter(id => !state.priceCache[id]); ids.forEach(id => { if(!queue.includes(id)) queue.push(id); }); async function worker(){ while(queue.length){ const id = queue.shift(); try{ const p = await apiGetProductById(id, state.source); state.priceCache[id] = p; persistCache(); } catch(err){ console.warn('Price refresh failed for id', id, err); } renderTable(); updateTotals(); await new Promise(r => setTimeout(r, 250)); } } const workers = Array.from({length: Math.min(3, queue.length)}, worker); await Promise.all(workers); alert('Prices refreshed.'); }
 
-  $('#btn-search').addEventListener('click', async ()=>{ const q = $('#q').value.trim(); if(!q) return; $('#results').innerHTML = '<div class="muted" style="padding:10px">Searching…</div>'; try{ const list = await apiSearchProducts(q, state.source); renderResults(list); }catch(err){ showError('Search failed: ' + err.message); $('#results').innerHTML = ''; } });
+  // Events
+  $('#btn-search').addEventListener('click', async ()=>{ const q = $('#q').value.trim(); if(!q) return; $('#results').innerHTML = '<div class=\"muted\" style=\"padding:10px\">Searching…</div>'; try{ const list = await apiSearchProducts(q, state.source); renderResults(list); }catch(err){ showError('Search failed: ' + err.message); $('#results').innerHTML = ''; } });
   $('#q').addEventListener('keydown', (e)=>{ if(e.key==='Enter') $('#btn-search').click(); });
   $('#btn-export').addEventListener('click', exportCSV); $('#btn-export-json').addEventListener('click', exportJSON); $('#btn-template').addEventListener('click', downloadTemplate); $('#btn-refresh').addEventListener('click', refreshAllPrices);
-  $('#btn-clear').addEventListener('click', ()=>{ if(confirm('Clear local inventory and cache?')){ localStorage.removeItem('ct_items'); localStorage.removeItem('ct_priceCache'); state.items = []; state.priceCache = {}; renderTable(); updateTotals(); } });
-  $('#btn-add-manual').addEventListener('click', ()=>{ const id = prompt('Enter product ID (numeric):'); if(!id) return; apiGetProductById(id, state.source).then(payload => { state.priceCache[id] = payload; persistCache(); addInventoryRowFromProduct(payload); }).catch(err=> alert('Lookup failed: '+err.message)); });
-  $('#source').value = state.source; $('#source').addEventListener('change', (e)=>{ state.source = e.target.value; localStorage.setItem('ct_source', state.source); $('#results').innerHTML = ''; });
+  $('#btn-clear').addEventListener('click', ()=>{ if(confirm('Clear local inventory and cache?')){ if(STORAGE_ENABLED){ localStorage.removeItem('ct_items'); localStorage.removeItem('ct_priceCache'); } state.items = []; state.priceCache = {}; renderTable(); updateTotals(); } });
+  $('#btn-add-manual').addEventListener('click', ()=>{ const id = prompt('Enter product ID (numeric):'); if(!id) return; apiGetProductById(id, state.source).then(payload => { state.priceCache[id] = payload; persistCache(); addInventoryRowFromProduct(payload); persist(); }).catch(err=> alert('Lookup failed: '+err.message)); });
+  $('#source').value = state.source; $('#source').addEventListener('change', (e)=>{ state.source = e.target.value; if(STORAGE_ENABLED) localStorage.setItem('ct_source', state.source); $('#results').innerHTML = ''; });
   $('#btn-import input[type=file]').addEventListener('change', (e)=>{ const f = e.target.files[0]; if(!f) return; importCSVFile(f); e.target.value = ''; });
+  $('#btn-save-now').addEventListener('click', ()=>{ persist(); alert('Saved.'); });
+
+  // Autosave every 5s (throttled)
+  setInterval(()=>{ persist(); }, 5000);
+  window.addEventListener('beforeunload', persist);
 
   renderTable(); updateTotals();
   </script>
