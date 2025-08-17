@@ -1,2 +1,8 @@
 [build]
-  functions = "netlify/functions"
+  publish = "."
+  environment = { SCP_TOKEN = "" }
+
+[functions]
+  node_bundler = "esbuild"
+  external_node_modules = ["jszip"]
+  directory = "netlify/functions"

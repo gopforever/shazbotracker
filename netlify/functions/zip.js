@@ -1,5 +1,6 @@
+
 // netlify/functions/zip.js
-// Static require of jszip so Netlify bundles dependency deterministically.
+// Builds a ZIP containing a CSV plus (optionally) images fetched via the image proxy.
 const JSZip = require('jszip');
 
 exports.handler = async (event) => {
@@ -13,7 +14,7 @@ exports.handler = async (event) => {
     const zip = new JSZip();
     zip.file(filename, csv, { binary: false });
 
-    // Optionally bundle images under /images
+    // Optionally fetch & add images (already proxied client-side)
     for (let i = 0; i < imageUrls.length; i++) {
       const u = imageUrls[i];
       try {
@@ -21,11 +22,11 @@ exports.handler = async (event) => {
         if (!r.ok) continue;
         const ab = await r.arrayBuffer();
         const buf = Buffer.from(ab);
-        const ext = (r.headers.get('content-type') || 'image/jpeg').includes('png') ? 'png' : 'jpg';
-        zip.file(`images/${String(i+1).padStart(3,'0')}.${ext}`, buf, { binary: true });
-      } catch (_) {
-        // ignore single image failure
-      }
+        const ct = r.headers.get('content-type') || '';
+        const ext = ct.includes('png') ? 'png' : (ct.includes('webp') ? 'webp' : 'jpg');
+        const name = `images/${String(i+1).padStart(3,'0')}.${ext}`;
+        zip.file(name, buf, { binary: true });
+      } catch {}
     }
 
     const content = await zip.generateAsync({ type: 'nodebuffer' });
@@ -34,15 +35,13 @@ exports.handler = async (event) => {
       headers: {
         'Content-Type': 'application/zip',
         'Content-Disposition': 'attachment; filename="export.zip"',
-        'Cache-Control': 'no-store'
+        'Cache-Control': 'no-store',
+        'Access-Control-Allow-Origin': '*'
       },
       body: content.toString('base64'),
       isBase64Encoded: true
     };
   } catch (err) {
-    return {
-      statusCode: 500,
-      body: JSON.stringify({ error: err.message })
-    };
+    return { statusCode: 500, body: JSON.stringify({ error: err.message }) };
   }
 };

@@ -1,24 +1,35 @@
+
 // netlify/functions/img.js
-const ALLOW = [
-  "storage.googleapis.com",
-  "sportscardspro.com", "images.sportscardspro.com", "img.sportscardspro.com",
-  "pricecharting.com", "images.pricecharting.com", "img.pricecharting.com"
-];
+// Simple image proxy to hide referers and enable CORS-safe thumbnails.
+const fetchImpl = global.fetch;
+
 exports.handler = async (event) => {
   try {
-    const raw = (event.queryStringParameters || {}).url || (event.queryStringParameters || {}).src || "";
-    if (!raw) return { statusCode: 400, body: "Missing url/src" };
-    let u; try { u = new URL(raw); } catch { return { statusCode: 400, body: "Bad URL" }; }
-    const ok = ALLOW.some(host => u.hostname === host || u.hostname.endsWith("." + host));
-    if (!ok) return { statusCode: 403, body: "Host not allowed" };
-    const r = await fetch(u.toString());
-    const buf = await r.arrayBuffer();
-    const ct = r.headers.get("content-type") || "image/jpeg";
+    const u = new URL(event.rawUrl || `http://x.local${event.path}${event.rawQuery ? '?'+event.rawQuery : ''}`);
+    const src = u.searchParams.get('src');
+    if (!src) {
+      return { statusCode: 400, body: 'Missing src' };
+    }
+    const r = await fetchImpl(src, {
+      headers: {
+        // Avoid hotlink blocking where possible
+        'User-Agent': 'Mozilla/5.0 (compatible; Shazbot/1.0)'
+      }
+    });
+    const ct = r.headers.get('content-type') || 'application/octet-stream';
+    const ab = await r.arrayBuffer();
+    const buf = Buffer.from(ab);
     return {
-      statusCode: 200,
-      headers: { "content-type": ct, "cache-control": "public, max-age=31536000, immutable", "access-control-allow-origin": "*" },
-      body: Buffer.from(buf).toString("base64"),
+      statusCode: r.ok ? 200 : r.status,
+      headers: {
+        'Content-Type': ct,
+        'Cache-Control': 'public, max-age=86400',
+        'Access-Control-Allow-Origin': '*'
+      },
+      body: buf.toString('base64'),
       isBase64Encoded: true
     };
-  } catch (e) { return { statusCode: 500, body: String(e) }; }
+  } catch (err) {
+    return { statusCode: 500, body: String(err) };
+  }
 };

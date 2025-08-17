@@ -1,71 +1,73 @@
+
 // netlify/functions/scp.js
-function json(status, obj) {
+// Server-side proxy for PriceCharting/SportsCardsPro search & product detail.
+// Keeps API token off the client and optionally enriches with image_url.
+const fetchImpl = global.fetch; // Node 18+ has global fetch
+
+function cors(json, status=200, extraHeaders={}){
   return {
     statusCode: status,
     headers: {
-      "content-type": "application/json",
-      "access-control-allow-origin": "*",
-      "cache-control": "public, max-age=60"
+      'Content-Type': 'application/json',
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Headers': 'Content-Type',
+      'Cache-Control': 'public, max-age=300',
+      ...extraHeaders
     },
-    body: JSON.stringify(obj)
+    body: JSON.stringify(json)
   };
 }
-function slugify(s) {
-  if (!s) return "";
-  return s.toLowerCase().normalize("NFKD").replace(/[’']/g, "").replace(/&/g, " and ").replace(/\[[^\]]*\]/g, " ").replace(/[^a-z0-9]+/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
-}
-function parseProductName(nameRaw) {
-  const m = /^(.*?)\s*(?:\[(.*?)\])?\s*#(\d+)/i.exec(nameRaw || "");
-  if (!m) return { base: slugify(nameRaw || ""), variant: "", num: "" };
-  return { base: slugify(m[1]||""), variant: slugify(m[2]||""), num: (m[3]||"") };
-}
-function buildPageUrl(consoleName, productName) {
-  const cat = slugify(consoleName || ""); const { base, variant, num } = parseProductName(productName || "");
-  const prod = [base, variant, num].filter(Boolean).join("-");
-  return `https://www.sportscardspro.com/game/${cat}/${prod}`;
-}
-const cache = new Map();
-async function findMainImage(pageUrl) {
-  if (!pageUrl) return null;
-  if (cache.has(pageUrl)) return cache.get(pageUrl);
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 2500);
-  try {
-    const r = await fetch(pageUrl, { headers: { "user-agent": "Mozilla/5.0 Shazbot/1.0" }, signal: controller.signal });
-    const html = await r.text();
-    const m = html.match(/https:\/\/storage\.googleapis\.com\/images\.pricecharting\.com\/[a-z0-9]+\/\d+\.jpg/i);
-    let url = m ? m[0] : null;
-    if (url) url = url.replace(/\/\d+\.jpg$/, "/400.jpg");
-    cache.set(pageUrl, url);
-    return url;
-  } catch (_) { return null; } finally { clearTimeout(timer); }
-}
+
 exports.handler = async (event) => {
-  const token = process.env.SCP_TOKEN;
-  if (!token) return json(500, { status: "error", "error-message": "Missing SCP_TOKEN env var" });
-  const p = event.queryStringParameters || {};
-  const base = "https://www.sportscardspro.com"; const path = p.path || "/api/products";
-  const url = new URL(base + path);
-  for (const [k, v] of Object.entries(p)) { if (["path","withImage","imageLimit"].includes(k)) continue; url.searchParams.set(k, v); }
-  url.searchParams.set("t", token); url.searchParams.set("token", token);
-  const withImage = p.withImage === "1" || p.withImage === "true"; const imageLimit = Math.max(0, Math.min(50, parseInt(p.imageLimit || "12")));
   try {
-    const r = await fetch(url.toString(), { headers: { "accept": "application/json" } });
-    const text = await r.text(); let data;
-    try { data = JSON.parse(text); } catch (e) { return json(r.status || 502, { status: "error", "error-message": text }); }
-    if (!withImage) return json(200, data);
-    if (path === "/api/product" && data && typeof data === "object") {
-      const pageUrl = buildPageUrl(data["console-name"], data["product-name"]); const thumb = await findMainImage(pageUrl);
-      if (pageUrl) data.pageUrl = pageUrl; if (thumb) { data.thumb = thumb; data["image-url"] = thumb; } return json(200, data);
+    const token = process.env.SCP_TOKEN || "";
+    if (!token) {
+      return cors({ error: 'Missing server token (SCP_TOKEN not set)' }, 500);
     }
-    if (Array.isArray(data.products)) {
-      const items = data.products.slice(0, imageLimit); let i = 0, concurrency = 5;
-      async function worker() { while (i < items.length) { const idx = i++; const row = items[idx];
-        try { const pageUrl = buildPageUrl(row["console-name"], row["product-name"]); const thumb = await findMainImage(pageUrl);
-          if (pageUrl) row.pageUrl = pageUrl; if (thumb) { row.thumb = thumb; row["image-url"] = thumb; } } catch {}
-      } }
-      await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, worker)); return json(200, data);
+    const u = new URL(event.rawUrl || `http://x.local${event.path}${event.rawQuery ? '?'+event.rawQuery : ''}`);
+    const q = u.searchParams.get('q');
+    const id = u.searchParams.get('id');
+    const withImage = u.searchParams.get('withImage') === '1' || u.searchParams.get('withImage') === 'true';
+    const limit = Math.min(100, parseInt(u.searchParams.get('limit')||'50',10));
+
+    if (id) {
+      // Product detail endpoint
+      const url = `https://www.pricecharting.com/api/product?t=${encodeURIComponent(token)}&id=${encodeURIComponent(id)}`;
+      const r = await fetchImpl(url);
+      if (!r.ok) return cors({ error: `Upstream ${r.status}` }, r.status);
+      const prod = await r.json();
+      // Normalize to include .image (if present)
+      if (prod && !prod.image && prod.image_url) prod.image = prod.image_url;
+      return cors({ product: prod });
     }
-    return json(200, data);
-  } catch (err) { return json(502, { status: "error", "error-message": String(err) }); }
+
+    if (!q) return cors({ error: 'Missing q or id' }, 400);
+
+    // Search endpoint
+    const url = `https://www.pricecharting.com/api/products?t=${encodeURIComponent(token)}&q=${encodeURIComponent(q)}`;
+    const r = await fetchImpl(url);
+    if (!r.ok) return cors({ error: `Upstream ${r.status}` }, r.status);
+    const data = await r.json();
+    let products = Array.isArray(data.products) ? data.products.slice(0, limit) : [];
+
+    // Optional: enrich first N with image via product detail
+    if (withImage) {
+      const top = products.slice(0, Math.min(products.length, 50));
+      const enriched = await Promise.all(top.map(async (p) => {
+        try {
+          const pr = await fetchImpl(`https://www.pricecharting.com/api/product?t=${encodeURIComponent(token)}&id=${encodeURIComponent(p.id)}`);
+          if (pr.ok) {
+            const pj = await pr.json();
+            p.image = pj.image_url || pj.image || p.image;
+          }
+        } catch {}
+        return p;
+      }));
+      products = enriched.concat(products.slice(top.length));
+    }
+
+    return cors({ products });
+  } catch (err) {
+    return cors({ error: err.message }, 500);
+  }
 };
