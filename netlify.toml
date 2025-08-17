@@ -6,16 +6,9 @@
   node_bundler = "esbuild"
   external_node_modules = ["jszip"]
 
-# Map common API paths to Netlify Functions so client-side '/api/scp' still works
+# Optional: map /api/* to functions if your UI calls /api/scp
 [[redirects]]
   from = "/api/*"
-  to = "/.netlify/functions/:splat"
-  status = 200
-  force = true
-
-# Optional: also map '/functions/*' to functions
-[[redirects]]
-  from = "/functions/*"
   to = "/.netlify/functions/:splat"
   status = 200
   force = true

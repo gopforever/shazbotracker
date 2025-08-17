@@ -1,47 +1,44 @@
-
 // netlify/functions/zip.js
-// Builds a ZIP containing a CSV plus (optionally) images fetched via the image proxy.
-const JSZip = require('jszip');
+import JSZip from "jszip";
 
-exports.handler = async (event) => {
+export default async (request, context) => {
   try {
-    const isPost = (event.httpMethod || '').toUpperCase() === 'POST';
-    const payload = isPost ? JSON.parse(event.body || '{}') : {};
-    const csv = payload.csv || 'id,qty,grade\n';
-    const filename = payload.filename || 'inventory.csv';
-    const imageUrls = Array.isArray(payload.imageUrls) ? payload.imageUrls : [];
-
+    const body = await request.json(); // { files: [{name, content(base64 or text), type}], images:[{name, url}] }
     const zip = new JSZip();
-    zip.file(filename, csv, { binary: false });
 
-    // Optionally fetch & add images (already proxied client-side)
-    for (let i = 0; i < imageUrls.length; i++) {
-      const u = imageUrls[i];
+    // Add files (CSV, JSON, etc.)
+    for (const f of (body.files || [])) {
+      if (f.base64) {
+        zip.file(f.name, Buffer.from(f.base64, "base64"));
+      } else if (typeof f.content === "string") {
+        zip.file(f.name, f.content);
+      }
+    }
+
+    // Fetch and add images
+    for (const img of (body.images || [])) {
       try {
-        const r = await fetch(u);
-        if (!r.ok) continue;
-        const ab = await r.arrayBuffer();
-        const buf = Buffer.from(ab);
-        const ct = r.headers.get('content-type') || '';
-        const ext = ct.includes('png') ? 'png' : (ct.includes('webp') ? 'webp' : 'jpg');
-        const name = `images/${String(i+1).padStart(3,'0')}.${ext}`;
-        zip.file(name, buf, { binary: true });
+        const r = await fetch(img.url);
+        if (r.ok) {
+          const buf = Buffer.from(await r.arrayBuffer());
+          zip.file(img.name || "image.jpg", buf);
+        }
       } catch {}
     }
 
-    const content = await zip.generateAsync({ type: 'nodebuffer' });
-    return {
-      statusCode: 200,
+    const buf = await zip.generateAsync({ type: "nodebuffer" });
+    return new Response(buf, {
+      status: 200,
       headers: {
-        'Content-Type': 'application/zip',
-        'Content-Disposition': 'attachment; filename="export.zip"',
-        'Cache-Control': 'no-store',
-        'Access-Control-Allow-Origin': '*'
-      },
-      body: content.toString('base64'),
-      isBase64Encoded: true
-    };
-  } catch (err) {
-    return { statusCode: 500, body: JSON.stringify({ error: err.message }) };
+        "content-type": "application/zip",
+        "content-disposition": 'attachment; filename="export.zip"',
+        "cache-control": "no-store"
+      }
+    });
+  } catch (e) {
+    return new Response(JSON.stringify({ error: e.message || "zip error" }), {
+      status: 500,
+      headers: { "content-type": "application/json" }
+    });
   }
 };
