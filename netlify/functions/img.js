@@ -1,6 +1,11 @@
 // netlify/functions/img.js
-// Image proxy to avoid hotlink/CORS issues. Allows *.sportscardspro.com and *.pricecharting.com.
-const ALLOW_BASE = ['sportscardspro.com','pricecharting.com','images.pricecharting.com','img.pricecharting.com'];
+// Image proxy to avoid hotlink/CORS issues. Expanded allowlist to cover SCP/CDN hosts.
+const ALLOW = [
+  'sportscardspro.com','pricecharting.com',
+  'images.sportscardspro.com','img.sportscardspro.com',
+  'images.pricecharting.com','img.pricecharting.com',
+  'storage.googleapis.com','lh3.googleusercontent.com'
+];
 
 exports.handler = async function(event, context) {
   const raw = (event.queryStringParameters || {}).url || '';
@@ -8,7 +13,7 @@ exports.handler = async function(event, context) {
   let u;
   try { u = new URL(raw); } catch { return { statusCode: 400, body: 'Bad url' }; }
 
-  const ok = ALLOW_BASE.some(base => u.hostname === base || u.hostname.endsWith('.'+base));
+  const ok = ALLOW.some(base => u.hostname === base || u.hostname.endsWith('.'+base));
   if (!ok) return { statusCode: 403, body: 'Host not allowed' };
 
   try {
