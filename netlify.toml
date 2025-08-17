@@ -1,8 +1,21 @@
 [build]
   publish = "."
-  environment = { SCP_TOKEN = "" }
+  functions = "netlify/functions"
 
 [functions]
   node_bundler = "esbuild"
   external_node_modules = ["jszip"]
-  directory = "netlify/functions"
+
+# Map common API paths to Netlify Functions so client-side '/api/scp' still works
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/:splat"
+  status = 200
+  force = true
+
+# Optional: also map '/functions/*' to functions
+[[redirects]]
+  from = "/functions/*"
+  to = "/.netlify/functions/:splat"
+  status = 200
+  force = true
