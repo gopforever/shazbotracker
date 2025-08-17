@@ -1,73 +1,85 @@
-
 // netlify/functions/scp.js
-// Server-side proxy for PriceCharting/SportsCardsPro search & product detail.
-// Keeps API token off the client and optionally enriches with image_url.
-const fetchImpl = global.fetch; // Node 18+ has global fetch
+export const config = { path: "/.netlify/functions/scp" };
 
-function cors(json, status=200, extraHeaders={}){
-  return {
-    statusCode: status,
-    headers: {
-      'Content-Type': 'application/json',
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Headers': 'Content-Type',
-      'Cache-Control': 'public, max-age=300',
-      ...extraHeaders
-    },
-    body: JSON.stringify(json)
-  };
-}
+const SPORTS_GENRES = [
+  "Football Cards","Baseball Cards","Basketball Cards","Hockey Cards",
+  "Soccer Cards","Wrestling Cards","UFC","MMA","Golf Cards","Boxing Cards"
+];
 
-exports.handler = async (event) => {
+const TCG_HINTS = ["pokemon","pokémon","yu-gi-oh","yugioh","magic","mtg","one piece","tcg","tcgp","digimon","lorcana","dbs"];
+
+const norm = (s="") => s.toString().toLowerCase().replace(/[^\w\s]/g," ").replace(/\s+/g," ").trim();
+
+const isSports = (p) => {
+  const g = norm(p.genre || "");
+  const c = norm(p["console-name"] || "");
+  const n = norm(p["product-name"] || "");
+  if (SPORTS_GENRES.some(x => g.includes(norm(x)))) return true;
+  // Common sports hints
+  if (c.includes("cards") || g.includes("cards")) {
+    if (!TCG_HINTS.some(h => c.includes(h) || g.includes(h) || n.includes(h))) return true;
+  }
+  // Brand hints
+  if (/(panini|topps|leaf|donruss|bowman|score|prizm|mosaic|select)\b/.test(n)) return true;
+  return false;
+};
+
+const isTCG = (p) => {
+  const all = norm([p.genre, p["console-name"], p["product-name"]].filter(Boolean).join(" "));
+  return TCG_HINTS.some(h => all.includes(h));
+};
+
+const scoreProduct = (p, qTokens, domain) => {
+  const hay = norm([p["product-name"], p["console-name"], p.genre].filter(Boolean).join(" "));
+  let s = 0;
+  qTokens.forEach(t => { if (hay.includes(t)) s += 5; });
+  // domain bias
+  if (domain === "sports") s += isSports(p) ? 100 : isTCG(p) ? -50 : 0;
+  if (domain === "tcg")    s += isTCG(p) ? 100   : isSports(p) ? -30 : 0;
+  // slight boost for exact player last name
+  const last = qTokens[qTokens.length-1] || "";
+  if (last && hay.includes(` ${last} `)) s += 3;
+  return s;
+};
+
+export default async (req, res) => {
   try {
-    const token = process.env.SCP_TOKEN || "";
-    if (!token) {
-      return cors({ error: 'Missing server token (SCP_TOKEN not set)' }, 500);
-    }
-    const u = new URL(event.rawUrl || `http://x.local${event.path}${event.rawQuery ? '?'+event.rawQuery : ''}`);
-    const q = u.searchParams.get('q');
-    const id = u.searchParams.get('id');
-    const withImage = u.searchParams.get('withImage') === '1' || u.searchParams.get('withImage') === 'true';
-    const limit = Math.min(100, parseInt(u.searchParams.get('limit')||'50',10));
+    const url = new URL(req.url);
+    const q = url.searchParams.get("q") || "";
+    const withImage = url.searchParams.get("withImage") === "1";
+    const domain = (url.searchParams.get("domain") || "sports").toLowerCase(); // default to sports
+    const token = process.env.SCP_TOKEN;
 
-    if (id) {
-      // Product detail endpoint
-      const url = `https://www.pricecharting.com/api/product?t=${encodeURIComponent(token)}&id=${encodeURIComponent(id)}`;
-      const r = await fetchImpl(url);
-      if (!r.ok) return cors({ error: `Upstream ${r.status}` }, r.status);
-      const prod = await r.json();
-      // Normalize to include .image (if present)
-      if (prod && !prod.image && prod.image_url) prod.image = prod.image_url;
-      return cors({ product: prod });
-    }
+    if (!token) return res.status(500).json({ error: "Missing SCP_TOKEN" });
+    if (!q.trim()) return res.json({ products: [] });
 
-    if (!q) return cors({ error: 'Missing q or id' }, 400);
+    // ——— Call SportsCardsPro ———
+    const apiURL = `https://www.sportscardspro.com/api/search?apikey=${encodeURIComponent(token)}&q=${encodeURIComponent(q)}`;
+    const resp = await fetch(apiURL, { headers: { "accept":"application/json" } });
+    if (!resp.ok) return res.status(resp.status).json({ error: `SCP ${resp.status}` });
 
-    // Search endpoint
-    const url = `https://www.pricecharting.com/api/products?t=${encodeURIComponent(token)}&q=${encodeURIComponent(q)}`;
-    const r = await fetchImpl(url);
-    if (!r.ok) return cors({ error: `Upstream ${r.status}` }, r.status);
-    const data = await r.json();
-    let products = Array.isArray(data.products) ? data.products.slice(0, limit) : [];
+    const data = await resp.json();
+    const products = Array.isArray(data.products) ? data.products : data;
 
-    // Optional: enrich first N with image via product detail
-    if (withImage) {
-      const top = products.slice(0, Math.min(products.length, 50));
-      const enriched = await Promise.all(top.map(async (p) => {
-        try {
-          const pr = await fetchImpl(`https://www.pricecharting.com/api/product?t=${encodeURIComponent(token)}&id=${encodeURIComponent(p.id)}`);
-          if (pr.ok) {
-            const pj = await pr.json();
-            p.image = pj.image_url || pj.image || p.image;
-          }
-        } catch {}
-        return p;
-      }));
-      products = enriched.concat(products.slice(top.length));
-    }
+    // Normalize tokens (“jr.” → “jr”)
+    const qTokens = norm(q).split(" ").filter(Boolean);
 
-    return cors({ products });
-  } catch (err) {
-    return cors({ error: err.message }, 500);
+    // Filter by domain (server-side)
+    let filtered = products;
+    if (domain === "sports") filtered = products.filter(p => isSports(p));
+    if (domain === "tcg")    filtered = products.filter(p => isTCG(p));
+
+    // Rank results
+    filtered.sort((a,b) => scoreProduct(b,qTokens,domain) - scoreProduct(a,qTokens,domain));
+
+    // Optional image enrichment (preserves your existing image proxy flow)
+    const out = filtered.slice(0, 100).map(p => {
+      const img = p.image || p.thumb || p.thumbnail || p.photo || null;
+      return withImage ? { ...p, image: img || null } : p;
+    });
+
+    res.json({ products: out, domain });
+  } catch (e) {
+    res.status(500).json({ error: e.message || "proxy error" });
   }
 };
