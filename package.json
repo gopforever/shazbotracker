@@ -1,0 +1,11 @@
+{
+  "name": "shazbot-site",
+  "version": "1.0.0",
+  "private": true,
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "jszip": "^3.10.1"
+  }
+}
