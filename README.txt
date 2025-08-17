@@ -1,25 +1,18 @@
-Shazbot Netlify Hotfix (JSZip)
+Logo Patch
 
-What this contains
-------------------
-1) package.json at the repository root declaring the 'jszip' dependency.
-2) netlify/functions/zip.js updated to use a static 'require("jszip")', which helps the bundler
-   detect the dependency. This eliminates the "Cannot find module 'jszip'" error.
+- Adds /images/logo.svg and /images/logo.png so your site stops 404-ing /images/logo.png.
+- You can replace these with your real artwork anytime.
 
-How to apply
-------------
-- Drop BOTH files into your repo (at the same relative paths).
-- Commit and redeploy on Netlify.
+How to install
+1) Unzip at the repo root so the path is exactly /images/logo.png and /images/logo.svg.
+2) Commit and redeploy.
 
-Optional (if builds still fail)
--------------------------------
-Add the following to your existing netlify.toml (do not remove other content):
+Recommended HTML snippet
+------------------------
+Use the SVG with PNG fallback:
 
-[functions]
-  node_bundler = "esbuild"
-  external_node_modules = ["jszip"]
+<img src="/images/logo.svg" alt="Shazbot" height="32"
+     onerror="this.onerror=null;this.src='/images/logo.png';">
 
-Notes
------
-- Netlify installs dependencies from the TOP-LEVEL package.json when bundling Functions.
-- Ensure your site uses Node 18+ runtime (this file sets `engines.node` to ">=18").
+Favicon (optional):
+<link rel="icon" href="/images/logo.png">
