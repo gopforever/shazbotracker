@@ -1,6 +1,7 @@
 // netlify/functions/scp.js
-// Slug-aware image enrichment for SportsCardsPro & PriceCharting.
-// Adds ?withImage=1 support for /api/product and /api/products. Falls back to /item/<id>.
+// Adds optional ?withImage=1 to enrich products with an image by visiting the page.
+// Uses URL pattern: /game/<console-slug>/<product-slug>. Falls back to /item/<id>.
+// Converts relative -> absolute image URLs.
 exports.handler = async function(event, context) {
   const token = process.env.SCP_TOKEN;
   if (!token) return json(500, { status: 'error', 'error-message': 'Missing SCP_TOKEN env var' });
@@ -9,7 +10,7 @@ exports.handler = async function(event, context) {
   const path = p.path || '/api/product';
   const id = p.id;
   const q = p.q;
-  const source = p.source || 'scp'; // 'scp' or 'pc'
+  const source = p.source || 'scp';
   const withImage = p.withImage === '1';
   const imageLimit = Math.max(0, Math.min(20, parseInt(p.imageLimit || '8')));
 
@@ -48,7 +49,7 @@ exports.handler = async function(event, context) {
 
 function slugify(s){
   if(!s) return '';
-  // Remove bracketed qualifiers like [Rookie]
+  // Remove bracketed content like [Rookie]
   s = s.replace(/\[[^\]]*\]/g, '');
   return s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').replace(/--+/g, '-');
 }
@@ -59,6 +60,7 @@ function pageUrlFromData(base, d){
   const c = slugify(consoleName);
   const p = slugify(productName);
   if (c && p) return `${base}/game/${c}/${p}`;
+  // Fallback if we can't form both slugs
   return `${base}/item/${encodeURIComponent(d.id)}`;
 }
 

@@ -1,4 +1,339 @@
 <!DOCTYPE html>
-<meta charset="utf-8">
-<title>CardTracker</title>
-<body>Deploy this whole folder to Netlify. Functions are in <code>netlify/functions</code>.</body>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>CardTracker — Sports Cards & TCG Inventory</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root{ --bg:#0b0d12; --panel:#121625; --panel-2:#0f1320; --muted:#9fb0c2; --text:#e8f0fb; --brand:#6aa2ff; --brand-2:#7ef0ff; --good:#1dd1a1; --warn:#ffb85c; --bad:#ff6b6b; --border:rgba(255,255,255,.08); --shadow:0 10px 24px rgba(2,12,27,.35), 0 2px 6px rgba(2,12,27,.25); --radius:16px }
+    *{box-sizing:border-box} html,body{height:100%}
+    body{ margin:0; font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial; background: radial-gradient(1200px 800px at 85% -10%, #14203f 0%, transparent 60%), radial-gradient(900px 600px at -10% -20%, #18335e 0, transparent 55%), var(--bg); color:var(--text); line-height:1.45 }
+    header{position:sticky; top:0; z-index:10; backdrop-filter:saturate(140%) blur(10px); background:linear-gradient(180deg, rgba(12,16,28,.9), rgba(12,16,28,.6)); border-bottom:1px solid var(--border)}
+    .nav{max-width:1200px; margin:0 auto; padding:14px 18px; display:flex; gap:12px; align-items:center}
+    .logo{display:flex; align-items:center; gap:10px; font-weight:700; letter-spacing:.2px; background:linear-gradient(90deg,var(--brand),var(--brand-2)); -webkit-background-clip:text; background-clip:text; color:transparent}
+    .logo .dot{width:10px; height:10px; border-radius:50%; background:linear-gradient(45deg,var(--brand),var(--brand-2)); box-shadow:0 0 16px var(--brand)}
+    .pill{padding:8px 12px; border:1px solid var(--border); border-radius:999px; background:var(--panel); color:var(--text)}
+    .ghost{background:transparent} .primary{background:linear-gradient(90deg,var(--brand),var(--brand-2)); color:#041429; border:none; box-shadow:var(--shadow)}
+    .btn{display:inline-flex; align-items:center; gap:8px; cursor:pointer; font-weight:600} .btn svg{width:16px; height:16px}
+    main{max-width:1200px; margin:22px auto; padding:0 18px; display:grid; gap:18px}
+    .panel{background:linear-gradient(180deg, rgba(255,255,255,.02), rgba(255,255,255,.01)); border:1px solid var(--border); border-radius:var(--radius); box-shadow:var(--shadow)}
+    .search{padding:14px; display:grid; gap:12px} .search-row{display:grid; grid-template-columns: 1fr auto auto auto; gap:10px}
+    .search input[type='text']{width:100%; padding:14px; border-radius:12px; border:1px solid var(--border); background:var(--panel-2); color:var(--text)}
+    .help{font-size:12px; color:var(--muted)}
+    .results{padding:8px 8px 12px; display:grid; gap:8px; max-height:320px; overflow:auto}
+    .result{display:grid; grid-template-columns:56px 1fr auto; gap:10px; align-items:center; padding:10px 12px; border:1px solid var(--border); border-radius:12px; background:var(--panel-2)}
+    .result small{color:var(--muted)}
+    .grid{display:grid; gap:16px} .two{grid-template-columns: 1.25fr .75fr} @media (max-width:1000px){ .two{grid-template-columns:1fr} }
+    .inventory{padding:12px} .table-wrap{overflow:auto; border:1px solid var(--border); border-radius:12px}
+    table{width:100%; border-collapse:separate; border-spacing:0; min-width:1100px}
+    thead th{position:sticky; top:0; background:linear-gradient(180deg, #141a2c, #11162a); text-align:left; font-weight:600; padding:10px 12px; border-bottom:1px solid var(--border)}
+    tbody td{padding:10px 12px; border-bottom:1px solid var(--border)} tbody tr:hover{background:rgba(255,255,255,.02)}
+    select, input[type='number'], input[type='text'].row-input{background:var(--panel-2); border:1px solid var(--border); color:var(--text); padding:8px 10px; border-radius:8px; width:100%}
+    .thumb{width:48px; height:66px; object-fit:cover; border-radius:8px; border:1px solid var(--border); background:#0a0e18}
+    .money{font-variant-numeric: tabular-nums} .delta-pos{color:var(--good); font-weight:600} .delta-neg{color:var(--bad); font-weight:600}
+    .footer{display:flex; justify-content:space-between; align-items:center; gap:12px; margin-top:8px; color:var(--muted)}
+    .totals{display:flex; gap:10px; flex-wrap:wrap} .totals .chip{background:var(--panel-2); border:1px solid var(--border); padding:8px 12px; border-radius:999px}
+    .toolbar{display:flex; gap:8px; flex-wrap:wrap} label.file{position:relative} input[type=file]{position:absolute; inset:0; opacity:0; cursor:pointer}
+    .notice{padding:12px; border:1px dashed var(--border); border-radius:12px; color:var(--muted)}
+    .kbd{font-family: ui-monospace, Menlo, Consolas, monospace; font-size:12px; background:#0a0e18; border:1px solid var(--border); padding:2px 6px; border-radius:6px}
+    .tag{font-size:12px; padding:2px 8px; border-radius:999px; border:1px solid var(--border); background:var(--panel-2); color:var(--muted)}
+    a{color:var(--brand-2)}
+  </style>
+</head>
+<body>
+  <header>
+    <div class="nav">
+      <div class="logo"><span class="dot"></span> CardTracker</div>
+      <div class="toolbar" style="margin-left:auto">
+        <button id="btn-export" class="btn pill">Export CSV</button>
+        <button id="btn-export-json" class="btn pill">Export JSON</button>
+        <label class="btn pill" id="btn-import">Import CSV<input type="file" accept=".csv" /></label>
+        <button id="btn-refresh" class="btn pill">Refresh Prices</button>
+        <button id="btn-clear" class="btn pill ghost" title="Clears local data only">Clear Data</button>
+        <span class="tag" id="storageTag">Storage: …</span>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <section class="panel search">
+      <div class="search-row">
+        <input id="q" type="text" placeholder="Search cards by player, set, year, number… (e.g., ‘Michael Jordan 1986 Fleer #57’)" />
+        <button id="btn-search" class="btn primary pill">Search</button>
+        <select id="source" class="pill" title="Choose data source">
+          <option value="scp" selected>SportsCardsPro</option>
+          <option value="pc">PriceCharting (for TCG)</option>
+        </select>
+        <span class="tag" id="planTag" title="Requests proxied via Netlify Function">API: Proxied/Auto</span>
+      </div>
+      <div class="help">Thumbnails use a tiny image proxy to avoid hotlink issues. If storage is Off, your browser is blocking local saves.</div>
+      <div class="results" id="results"></div>
+      <div id="errorBox" class="notice" style="display:none"></div>
+    </section>
+
+    <section class="grid two">
+      <div class="panel inventory">
+        <div class="footer" style="margin-bottom:8px">
+          <div class="totals">
+            <div class="chip">Items: <strong id="totalItems">0</strong></div>
+            <div class="chip">Qty: <strong id="totalQty">0</strong></div>
+            <div class="chip">Est. Value: <strong class="money" id="totalValue">$0.00</strong></div>
+            <div class="chip">Cost Basis: <strong class="money" id="totalCost">$0.00</strong></div>
+            <div class="chip">PnL: <strong class="money" id="totalPnL">$0.00</strong></div>
+          </div>
+          <div class="muted">Values fetched live & cached in <span class="kbd">localStorage</span></div>
+        </div>
+
+        <div class="table-wrap">
+          <table id="table">
+            <thead>
+              <tr>
+                <th style="width:30px"></th>
+                <th>Img</th>
+                <th>Card</th>
+                <th>Set</th>
+                <th>Condition</th>
+                <th>Price Key</th>
+                <th>Qty</th>
+                <th>Unit Cost</th>
+                <th>Est. Price</th>
+                <th>Est. Value</th>
+                <th>PnL</th>
+                <th>Notes</th>
+                <th>Updated</th>
+              </tr>
+            </thead>
+            <tbody id="tbody"></tbody>
+          </table>
+        </div>
+        <div class="footer">
+          <div class="muted">Override the <strong>Price Key</strong> when needed (e.g., <span class="kbd">psa10-price</span>, <span class="kbd">loose-price</span>, <span class="kbd">graded-price</span>).</div>
+          <div class="toolbar">
+            <button class="btn pill" id="btn-add-manual">Add Manual Item</button>
+            <button class="btn pill ghost" id="btn-save-now" title="Force-save to storage">Save Now</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel" style="padding:12px">
+        <h3 style="margin:4px 6px 10px">How to use</h3>
+        <div class="notice">
+          <ol style="margin:0 0 0 18px; padding:0; display:grid; gap:8px">
+            <li>Search and <em>Add</em> a card. We cache the full product response (prices & image).</li>
+            <li>Pick a <strong>Condition</strong>, optionally set a <strong>Price Key override</strong>, edit <strong>Qty</strong> & <strong>Unit Cost</strong>.</li>
+            <li>Click <strong>Refresh Prices</strong> to update cached payloads. Uses proxy if available.</li>
+            <li>Import/Export your inventory via CSV (or JSON).</li>
+          </ol>
+          <p class="muted" style="margin-top:10px">Functions: <span class="kbd">netlify/functions/scp.js</span> (API+image) • <span class="kbd">netlify/functions/img.js</span> (image proxy). Set <span class="kbd">SCP_TOKEN</span> in Netlify.</p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+  <script>
+  const DIRECT_TOKEN = '60a3ec136eda14138bf7b4f236bcfbc584262a54';
+  const API_BASE = { scp: 'https://www.sportscardspro.com', pc: 'https://www.pricecharting.com' };
+  const PROXY_FN = '/.netlify/functions/scp';
+  const IMG_PROXY = '/.netlify/functions/img';
+
+  function storageOK(){ try{ const k='__ct_test__'; localStorage.setItem(k,'1'); localStorage.removeItem(k); return true; }catch(e){ return false; } }
+  const STORAGE_ENABLED = storageOK();
+  const state = { source: localStorage.getItem('ct_source') || 'scp', items: [], priceCache: {} };
+  (()=>{
+    if(STORAGE_ENABLED){
+      try{
+        state.items = JSON.parse(localStorage.getItem('ct_items')||'[]');
+        state.priceCache = JSON.parse(localStorage.getItem('ct_priceCache')||'{}');
+      }catch(e){
+        try{ state.items = JSON.parse(localStorage.getItem('ct_items_backup')||'[]'); }catch(_){ state.items = []; }
+        state.priceCache = {};
+      }
+    }
+    const src = localStorage.getItem('ct_source'); if(src) state.source = src;
+  })();
+
+  const $ = s => document.querySelector(s); const $$ = s => Array.from(document.querySelectorAll(s));
+  const fmt = n => (isFinite(n)? (n<0? `-$${(Math.abs(n)/100).toFixed(2)}` : `$${(n/100).toFixed(2)}`) : '$0.00');
+  const moneyToCents = s => Math.round(parseFloat(String(s||0)) * 100);
+  const cents = n => Math.round(n);
+  const nowStr = () => new Date().toLocaleString();
+  function showError(msg){ const box = $('#errorBox'); box.style.display='block'; box.textContent = msg; }
+  function proxifyImage(url){ if(!url) return ''; if(url.startsWith('data:')) return url; const u = new URL(IMG_PROXY, location.origin); u.searchParams.set('url', url); return u.toString(); }
+
+  function setStorageTag(){ const el=$('#storageTag'); el.textContent = 'Storage: ' + (STORAGE_ENABLED ? 'On' : 'Off'); if(!STORAGE_ENABLED){ el.style.borderColor = '#ff6b6b'; el.style.color = '#ffbaba'; } }
+  setStorageTag();
+
+  function persist(){ if(!STORAGE_ENABLED) return; localStorage.setItem('ct_items', JSON.stringify(state.items)); localStorage.setItem('ct_priceCache', JSON.stringify(state.priceCache)); localStorage.setItem('ct_items_backup', JSON.stringify(state.items)); }
+  function persistCache(){ if(!STORAGE_ENABLED) return; localStorage.setItem('ct_priceCache', JSON.stringify(state.priceCache)); }
+
+  async function fetchViaProxyOrDirect(params){
+    try{
+      const u = new URL(PROXY_FN, location.origin);
+      Object.entries(params).forEach(([k,v])=>{ if(v!=null) u.searchParams.set(k,v); });
+      const res = await fetch(u.toString(), {mode:'cors'});
+      if(!res.ok) throw new Error(`Proxy HTTP ${res.status}`);
+      const data = await res.json();
+      if(data.status !== 'success') throw new Error(data['error-message']||'Proxy error');
+      return data;
+    }catch(err){
+      if(location.hostname === 'localhost' || location.hostname.endsWith('.netlify.app')===false){
+        const base = API_BASE[state.source];
+        const path = params.path || '/api/product';
+        const url = new URL(base + path);
+        if(params.id) url.searchParams.set('id', params.id);
+        if(params.q) url.searchParams.set('q', params.q);
+        url.searchParams.set('t', DIRECT_TOKEN);
+        const r = await fetch(url.toString(), {mode:'cors'});
+        const data = await r.json();
+        if(data.status !== 'success') throw new Error(data['error-message']||'Direct error');
+        showError('Using direct API fallback (dev mode). For production, enable Netlify function.');
+        return data;
+      } else { throw err; }
+    }
+  }
+
+  async function apiSearchProducts(query, source){ return fetchViaProxyOrDirect({ path:'/api/products', q: query, source, withImage: '1', imageLimit: '10' }); }
+  async function apiGetProductById(id, source){ return fetchViaProxyOrDirect({ path:'/api/product', id, source, withImage: '1' }); }
+
+  const CONDITION_OPTIONS = ['Ungraded','PSA 10','PSA 9','BGS 10','SGC 10','CGC 10','Graded 8','Graded 7'];
+  function getAvailablePriceKeys(p){ return Object.keys(p||{}).filter(k => /price$/i.test(k)).sort(); }
+  function getImageUrl(p){ if(p && p['image-url']) return p['image-url']; const k = Object.keys(p||{}); const pick = k.find(x => /(image|img|thumb)/i.test(x)); return pick ? p[pick] : ''; }
+  function priceFromRow(row){ const payload = state.priceCache[row.id]||{}; if(row.priceKey && payload[row.priceKey]) return cents(payload[row.priceKey]); return pickPriceCents(payload, row.condition); }
+  function pickPriceCents(p, c){ const k = Object.keys(p||{}); const f = (parts)=>k.find(x=>parts.every(p2=>x.toLowerCase().includes(p2))); const has=(x)=>k.includes(x); switch(c){ case 'Ungraded': if(has('loose-price')) return cents(p['loose-price']); if(has('ungraded-price')) return cents(p['ungraded-price']); break; case 'PSA 10': if(f(['psa','10','price'])) return cents(p[f(['psa','10','price'])]); if(has('manual-only-price')) return cents(p['manual-only-price']); break; case 'PSA 9': if(f(['psa','9','price'])) return cents(p[f(['psa','9','price'])]); if(has('graded-price')) return cents(p['graded-price']); break; case 'BGS 10': if(f(['bgs','10','price'])) return cents(p[f(['bgs','10','price'])]); if(f(['bgs','black','label'])) return cents(p[f(['bgs','black','label'])]); break; case 'SGC 10': if(f(['sgc','10','price'])) return cents(p[f(['sgc','10','price'])]); if(f(['condition','18','price'])) return cents(p[f(['condition','18','price'])]); break; case 'CGC 10': if(f(['cgc','10','price'])) return cents(p[f(['cgc','10','price'])]); if(f(['condition','17','price'])) return cents(p[f(['condition','17','price'])]); break; case 'Graded 8': if(has('new-price')) return cents(p['new-price']); if(f(['8','price'])) return cents(p[f(['8','price'])]); break; case 'Graded 7': if(has('cib-price')) return cents(p['cib-price']); if(f(['7','price'])) return cents(p[f(['7','price'])]); break; } const order=['graded-price','manual-only-price','loose-price','new-price','cib-price']; for(const x of order){ if(has(x)) return cents(p[x]); } const any=k.find(x=>/price$/i.test(x)); return any? cents(p[any]):0; }
+
+  function renderResults(listWrap){
+    const list = listWrap.products || listWrap;
+    const box = $('#results'); box.innerHTML='';
+    if(!list.length){ box.innerHTML='<div class=\"muted\" style=\"padding:10px\">No results yet. Try a broader search.</div>'; return; }
+    list.forEach(p => {
+      const raw = p['image-url'] || '';
+      const img = proxifyImage(raw);
+      const el = document.createElement('div'); el.className='result';
+      el.innerHTML = `${img? `<img class='thumb' src='${img}' alt='thumb'/>` : `<div class='thumb'></div>`}
+        <div><div><strong>${p['product-name']||'Unknown'}</div><small>${p['console-name']||''} • ID ${p.id}</small></div>
+        <div style='display:flex; gap:8px'><button class='btn pill' data-add='${p.id}'>Add</button>
+        <a class='btn pill ghost' target='_blank' rel='noreferrer' href='https://www.sportscardspro.com'>Open</a></div>`;
+      box.appendChild(el);
+    });
+    $$('#results [data-add]').forEach(btn => btn.addEventListener('click', async (e)=>{
+      const id = e.currentTarget.getAttribute('data-add');
+      e.currentTarget.textContent='Adding…';
+      try { const payload = await apiGetProductById(id, state.source); state.priceCache[id] = payload; persistCache(); addInventoryRowFromProduct(payload); persist(); }
+      catch(err){ alert('Add failed: '+err.message); }
+      finally { e.currentTarget.textContent='Add'; }
+    }));
+  }
+
+  function renderTable(){
+    const tbody = $('#tbody'); tbody.innerHTML='';
+    state.items.forEach((row, idx) => {
+      const payload = state.priceCache[row.id]||{};
+      const raw = row.image || getImageUrl(payload) || '';
+      const img = proxifyImage(raw);
+      const keys = getAvailablePriceKeys(payload);
+      const priceC = priceFromRow(row);
+      const estValueC = cents(priceC * row.qty);
+      const pnlC = cents(estValueC - (row.costCents||0) * row.qty);
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td><button class='pill' data-del='${idx}' title='Remove'>✕</button></td>
+        <td>${img ? `<img class='thumb' src='${img}' alt='thumb'/>` : '<div class=\"thumb\"></div>'}</td>
+        <td><div style='font-weight:600'>${row.name||''}</div><div class='muted'>ID ${row.id}</div></td>
+        <td>${row.set||''}</td>
+        <td><select data-cond='${idx}'>${CONDITION_OPTIONS.map(c => `<option ${c===row.condition?'selected':''}>${c}</option>`).join('')}</select></td>
+        <td>${keys.length ? `<select data-pkey='${idx}'><option value=''>(auto)</option>${keys.map(k => `<option value='${k}' ${row.priceKey===k?'selected':''}>${k}</option>`).join('')}</select>` : `<input class='row-input' type='text' placeholder='(auto)' value='${row.priceKey||''}' data-pkey-input='${idx}' />`}</td>
+        <td><input class='row-input' type='number' min='1' step='1' value='${row.qty}' data-qty='${idx}' /></td>
+        <td><input class='row-input' type='number' min='0' step='0.01' value='${(row.costCents||0)/100}' data-cost='${idx}' /></td>
+        <td class='money'>${fmt(priceC)}</td>
+        <td class='money'>${fmt(estValueC)}</td>
+        <td class='money ${pnlC>=0? 'delta-pos':'delta-neg'}'>${fmt(pnlC)}</td>
+        <td><input class='row-input' type='text' value='${row.notes||''}' data-notes='${idx}' /></td>
+        <td class='muted'>${row.updated||''}</td>`;
+      tbody.appendChild(tr);
+    });
+
+    $$('#tbody [data-del]').forEach(btn => btn.addEventListener('click', (e)=>{
+      const i = +e.currentTarget.getAttribute('data-del');
+      state.items.splice(i,1); persist(); renderTable(); updateTotals();
+    }));
+    $$('#tbody [data-cond]').forEach(sel => sel.addEventListener('change', (e)=>{
+      const i = +e.currentTarget.getAttribute('data-cond');
+      state.items[i].condition = e.currentTarget.value; state.items[i].updated = nowStr();
+      persist(); renderTable(); updateTotals();
+    }));
+    $$('#tbody [data-pkey]').forEach(sel => sel.addEventListener('change', (e)=>{
+      const i = +e.currentTarget.getAttribute('data-pkey');
+      state.items[i].priceKey = e.currentTarget.value || undefined; state.items[i].updated = nowStr();
+      persist(); renderTable(); updateTotals();
+    }));
+    $$('#tbody [data-pkey-input]').forEach(inp => inp.addEventListener('input', (e)=>{
+      const i = +e.currentTarget.getAttribute('data-pkey-input');
+      const v = (e.currentTarget.value||'').trim();
+      state.items[i].priceKey = v || undefined; state.items[i].updated = nowStr();
+      persist(); renderTable(); updateTotals();
+    }));
+    $$('#tbody [data-qty]').forEach(inp => inp.addEventListener('input', (e)=>{
+      const i = +e.currentTarget.getAttribute('data-qty');
+      state.items[i].qty = Math.max(1, parseInt(e.currentTarget.value||'1')); state.items[i].updated = nowStr();
+      persist(); renderTable(); updateTotals();
+    }));
+    $$('#tbody [data-cost]').forEach(inp => inp.addEventListener('input', (e)=>{
+      const i = +e.currentTarget.getAttribute('data-cost');
+      state.items[i].costCents = moneyToCents(e.currentTarget.value||'0'); state.items[i].updated = nowStr();
+      persist(); renderTable(); updateTotals();
+    }));
+    $$('#tbody [data-notes]').forEach(inp => inp.addEventListener('input', (e)=>{
+      const i = +e.currentTarget.getAttribute('data-notes');
+      state.items[i].notes = e.currentTarget.value; state.items[i].updated = nowStr();
+      persist();
+    }));
+  }
+
+  function updateTotals(){
+    const totals = state.items.reduce((acc, row)=>{
+      const priceC = priceFromRow(row);
+      acc.items += 1; acc.qty += row.qty; acc.valueC += cents(priceC * row.qty); acc.costC += cents((row.costCents||0) * row.qty);
+      return acc;
+    }, {items:0, qty:0, valueC:0, costC:0});
+    $('#totalItems').textContent = totals.items;
+    $('#totalQty').textContent = totals.qty;
+    $('#totalValue').textContent = fmt(totals.valueC);
+    $('#totalCost').textContent = fmt(totals.costC);
+    const pnl = totals.valueC - totals.costC;
+    $('#totalPnL').textContent = fmt(pnl);
+    $('#totalPnL').className = 'money ' + (pnl>=0? 'delta-pos':'delta-neg');
+  }
+
+  function addInventoryRowFromProduct(p){
+    const row = { id: p.id, name: p['product-name']||'Unknown', set: p['console-name']||'', condition: 'Ungraded', qty: 1, costCents: 0, notes: '', image: getImageUrl(p) || '', priceKey: '', updated: nowStr() };
+    state.items.unshift(row); persist(); renderTable(); updateTotals();
+  }
+
+  function exportCSV(){ const header = ['id','name','set','condition','priceKey','qty','unitCost','notes','image']; const rows = state.items.map(r => [r.id, r.name, r.set, r.condition, r.priceKey||'', r.qty, (r.costCents||0)/100, r.notes||'', r.image||'']); const csv = Papa.unparse([header, ...rows]); const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'}); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href=url; a.download='cardtracker_inventory.csv'; a.click(); URL.revokeObjectURL(url); }
+  function exportJSON(){ const json = JSON.stringify({source: state.source, items: state.items}, null, 2); const blob = new Blob([json], {type:'application/json'}); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href=url; a.download='cardtracker_inventory.json'; a.click(); URL.revokeObjectURL(url); }
+  function downloadTemplate(){ const header = ['id','name','set','condition','priceKey','qty','unitCost','notes','image']; const sample = [['72584','Michael Jordan #57','Basketball Cards 1986 Fleer','Ungraded','psa10-price','1','0','example note','']]; const csv = Papa.unparse([header, ...sample]); const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'}); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href=url; a.download='cardtracker_template.csv'; a.click(); URL.revokeObjectURL(url); }
+  function importCSVFile(file){ Papa.parse(file, { header:true, skipEmptyLines:true, complete: (res)=>{ const rows = res.data || []; const imported = []; rows.forEach(r => { if(!r.id) return; imported.push({ id: String(r.id).trim(), name: (r.name||'').trim(), set: (r.set||'').trim(), condition: (r.condition||'Ungraded').trim(), priceKey: (r.priceKey||'').trim() || undefined, qty: Math.max(1, parseInt(r.qty||'1')), costCents: moneyToCents(r.unitCost||'0'), notes: (r.notes||'').trim(), image: (r.image||'').trim(), updated: nowStr() }); }); state.items = [...imported, ...state.items]; persist(); renderTable(); updateTotals(); alert(`Imported ${imported.length} rows.`); } }); }
+
+  async function refreshAllPrices(){ const ids = [...new Set(state.items.map(r => r.id))]; const queue = ids.filter(id => !state.priceCache[id]); ids.forEach(id => { if(!queue.includes(id)) queue.push(id); }); async function worker(){ while(queue.length){ const id = queue.shift(); try{ const p = await apiGetProductById(id, state.source); state.priceCache[id] = p; persistCache(); } catch(err){ console.warn('Price refresh failed for id', id, err); } renderTable(); updateTotals(); await new Promise(r => setTimeout(r, 250)); } } const workers = Array.from({length: Math.min(3, queue.length)}, worker); await Promise.all(workers); alert('Prices refreshed.'); }
+
+  // Events
+  $('#btn-search').addEventListener('click', async ()=>{ const q = $('#q').value.trim(); if(!q) return; $('#results').innerHTML = '<div class=\"muted\" style=\"padding:10px\">Searching…</div>'; try{ const list = await apiSearchProducts(q, state.source); renderResults(list); }catch(err){ showError('Search failed: ' + err.message); $('#results').innerHTML = ''; } });
+  $('#q').addEventListener('keydown', (e)=>{ if(e.key==='Enter') $('#btn-search').click(); });
+  $('#btn-export').addEventListener('click', exportCSV); $('#btn-export-json').addEventListener('click', exportJSON); $('#btn-template').addEventListener('click', downloadTemplate); $('#btn-refresh').addEventListener('click', refreshAllPrices);
+  $('#btn-clear').addEventListener('click', ()=>{ if(confirm('Clear local inventory and cache?')){ try{ localStorage.removeItem('ct_items'); localStorage.removeItem('ct_priceCache'); localStorage.removeItem('ct_items_backup'); }catch(_){} state.items = []; state.priceCache = {}; renderTable(); updateTotals(); } });
+  $('#btn-add-manual').addEventListener('click', ()=>{ const id = prompt('Enter product ID (numeric):'); if(!id) return; apiGetProductById(id, state.source).then(payload => { state.priceCache[id] = payload; persistCache(); addInventoryRowFromProduct(payload); persist(); }).catch(err=> alert('Lookup failed: '+err.message)); });
+  $('#source').value = state.source; $('#source').addEventListener('change', (e)=>{ state.source = e.target.value; try{ localStorage.setItem('ct_source', state.source); }catch(_){} $('#results').innerHTML = ''; });
+  $('#btn-import input[type=file]').addEventListener('change', (e)=>{ const f = e.target.files[0]; if(!f) return; importCSVFile(f); e.target.value = ''; });
+  $('#btn-save-now').addEventListener('click', ()=>{ persist(); alert('Saved.'); });
+
+  // Autosave every 5s
+  setInterval(()=>{ persist(); }, 5000);
+  window.addEventListener('beforeunload', persist);
+
+  renderTable(); updateTotals();
+  </script>
+</body>
+</html>
